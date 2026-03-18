@@ -17,6 +17,9 @@ public class CustomNetworkManager : NetworkManager
 
     public override void Awake()
     {
+        // Регистрируем все characterPrefabs ДО base.Awake()
+        RegisterCharacterPrefabs();
+        
         // Автоматически устанавливаем playerPrefab если он пустой
         if (playerPrefab == null && characterPrefabs != null && characterPrefabs.Length > 0)
         {
@@ -25,6 +28,20 @@ public class CustomNetworkManager : NetworkManager
         }
         
         base.Awake();
+    }
+
+    private void RegisterCharacterPrefabs()
+    {
+        if (characterPrefabs == null) return;
+        
+        foreach (GameObject prefab in characterPrefabs)
+        {
+            if (prefab != null && !spawnPrefabs.Contains(prefab))
+            {
+                spawnPrefabs.Add(prefab);
+                Debug.Log($"[CustomNetworkManager] Registered spawn prefab: {prefab.name}");
+            }
+        }
     }
 
     public override void OnServerAddPlayer(NetworkConnectionToClient conn)

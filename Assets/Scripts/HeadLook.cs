@@ -5,32 +5,26 @@ using Mirror;
 public class HeadLook : NetworkBehaviour
 {
     [Header("Camera Settings")]
-    [Tooltip("Камера игрока - перетащите сюда камеру")]
+    [Tooltip("Камера игрока")]
     public Camera playerCamera;
     
     [Header("Look Settings")]
     [Tooltip("Чувствительность мыши")]
     public float mouseSensitivity = 2f;
     
-    [Tooltip("Максимальный угол поворота вверх/вниз")]
+    [Tooltip("Максимальный угол обзора вверх/вниз")]
     public float maxVerticalAngle = 90f;
     
-    [Tooltip("Максимальный угол поворота головы влево/вправо")]
-    public float maxHorizontalAngle = 90f;
-    
     [Header("References")]
-    [Tooltip("Тело игрока (родительский объект) - для поворота всего персонажа")]
+    [Tooltip("Тело игрока - для горизонтального поворота")]
     public Transform playerBody;
     
-    // Текущие углы поворота
-    private float rotationX = 0f; // Вертикальный (вверх/вниз)
-    private float rotationY = 0f; // Горизонтальный (влево/вправо) - локальный для головы
+    // Текущий угол вертикального поворота
+    private float rotationX = 0f;
     
     // Синхронизация поворота головы по сети
     [SyncVar]
     private float syncHeadRotationX;
-    [SyncVar]
-    private float syncHeadRotationY;
 
     void Start()
     {
@@ -38,6 +32,14 @@ public class HeadLook : NetworkBehaviour
         {
             SetupCamera();
             LockCursor();
+        }
+        else
+        {
+            // Отключаем камеру для других игроков
+            if (playerCamera != null)
+            {
+                playerCamera.gameObject.SetActive(false);
+            }
         }
     }
 
@@ -83,7 +85,7 @@ public class HeadLook : NetworkBehaviour
         }
         else
         {
-            // Для других игроков - применяем синхронизированные значения
+            // Для других игроков - применяем синхронизированный поворот
             ApplySyncedRotation();
         }
     }
@@ -91,58 +93,41 @@ public class HeadLook : NetworkBehaviour
     void HandleMouseLook()
     {
         Mouse mouse = Mouse.current;
-        if (mouse == null || playerCamera == null) return;
+        if (mouse == null) return;
 
         // Получаем движение мыши
         Vector2 mouseDelta = mouse.delta.ReadValue() * mouseSensitivity * 0.1f;
 
-        // Вертикальный поворот (камера и голова смотрят вверх/вниз)
+        // Вертикальный поворот (голова/камера вверх-вниз)
         rotationX -= mouseDelta.y;
         rotationX = Mathf.Clamp(rotationX, -maxVerticalAngle, maxVerticalAngle);
 
-        // Горизонтальный поворот головы (локальный)
-        rotationY += mouseDelta.x;
-        
-        // Если голова повернулась больше чем на maxHorizontalAngle - поворачиваем тело
-        if (Mathf.Abs(rotationY) > maxHorizontalAngle)
-        {
-            // Вычисляем на сколько превысили лимит
-            float excess = rotationY - Mathf.Sign(rotationY) * maxHorizontalAngle;
-            
-            // Поворачиваем тело на эту величину
-            if (playerBody != null)
-            {
-                playerBody.Rotate(Vector3.up * excess);
-            }
-            
-            // Ограничиваем поворот головы
-            rotationY = Mathf.Sign(rotationY) * maxHorizontalAngle;
-        }
+        // Применяем вертикальный поворот к голове (где находится камера)
+        transform.localRotation = Quaternion.Euler(rotationX, 0f, 0f);
 
-        // Применяем поворот к голове (этот объект)
-        transform.localRotation = Quaternion.Euler(rotationX, rotationY, 0);
-        
-        // Камера следует за головой (можно добавить дополнительный offset)
-        playerCamera.transform.localRotation = Quaternion.identity;
+        // Горизонтальный поворот (поворачиваем всё тело)
+        if (playerBody != null)
+        {
+            playerBody.Rotate(Vector3.up * mouseDelta.x);
+        }
 
         // Синхронизируем с сервером
         if (isOwned)
         {
-            CmdSyncHeadRotation(rotationX, rotationY);
+            CmdSyncHeadRotation(rotationX);
         }
     }
 
     [Command]
-    void CmdSyncHeadRotation(float x, float y)
+    void CmdSyncHeadRotation(float x)
     {
         syncHeadRotationX = x;
-        syncHeadRotationY = y;
     }
 
     void ApplySyncedRotation()
     {
         // Плавно применяем синхронизированный поворот для других игроков
-        Quaternion targetRotation = Quaternion.Euler(syncHeadRotationX, syncHeadRotationY, 0);
+        Quaternion targetRotation = Quaternion.Euler(syncHeadRotationX, 0f, 0f);
         transform.localRotation = Quaternion.Lerp(transform.localRotation, targetRotation, Time.deltaTime * 10f);
     }
 
