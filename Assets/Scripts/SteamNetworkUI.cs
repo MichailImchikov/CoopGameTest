@@ -20,12 +20,35 @@ public class SteamNetworkUI : MonoBehaviour
 
     private SteamLobby steamLobby;
 
+    private void Awake()
+    {
+        Debug.Log("[SteamNetworkUI] Awake called");
+    }
+
     private void Start()
     {
+        Debug.Log("[SteamNetworkUI] Start called");
+        
         steamLobby = FindObjectOfType<SteamLobby>();
+        
+        if (steamLobby == null)
+        {
+            Debug.LogError("[SteamNetworkUI] SteamLobby NOT FOUND! Make sure SteamLobby component exists in the scene.");
+        }
+        else
+        {
+            Debug.Log("[SteamNetworkUI] SteamLobby found successfully");
+        }
 
         if (hostButton != null)
+        {
             hostButton.onClick.AddListener(OnHostClicked);
+            Debug.Log("[SteamNetworkUI] Host button listener added");
+        }
+        else
+        {
+            Debug.LogError("[SteamNetworkUI] Host button is NULL!");
+        }
 
         if (leaveButton != null)
             leaveButton.onClick.AddListener(OnLeaveClicked);
@@ -50,17 +73,16 @@ public class SteamNetworkUI : MonoBehaviour
     private void UpdateUI()
     {
 #if !DISABLESTEAMWORKS
-
-            if (SteamLobby.CurrentLobbyID.IsValid())
-            {
-                if (copyLobbyIdButton != null)
-                    copyLobbyIdButton.gameObject.SetActive(true);
-            }
-            else
-            {
-                if (copyLobbyIdButton != null)
-                    copyLobbyIdButton.gameObject.SetActive(false);
-            }
+        if (SteamLobby.CurrentLobbyID.IsValid())
+        {
+            if (copyLobbyIdButton != null)
+                copyLobbyIdButton.gameObject.SetActive(true);
+        }
+        else
+        {
+            if (copyLobbyIdButton != null)
+                copyLobbyIdButton.gameObject.SetActive(false);
+        }
 #endif
 
         if (hostButton != null)
@@ -78,60 +100,75 @@ public class SteamNetworkUI : MonoBehaviour
 
     private void OnHostClicked()
     {
-        if (steamLobby != null)
+        Debug.Log("[SteamNetworkUI] OnHostClicked called!");
+        
+        if (steamLobby == null)
         {
-            steamLobby.HostLobby();
-            Debug.Log("[UI] Host button clicked - Creating Steam Lobby...");
+            Debug.LogError("[SteamNetworkUI] steamLobby is NULL!");
+            // Попробуем найти ещё раз
+            steamLobby = FindObjectOfType<SteamLobby>();
+            if (steamLobby == null)
+            {
+                Debug.LogError("[SteamNetworkUI] Still cannot find SteamLobby!");
+                return;
+            }
         }
+
+        Debug.Log("[SteamNetworkUI] Calling steamLobby.HostLobby()...");
+        steamLobby.HostLobby();
+        Debug.Log("[SteamNetworkUI] HostLobby() called");
     }
 
     private void OnLeaveClicked()
     {
+        Debug.Log("[SteamNetworkUI] OnLeaveClicked called");
         if (steamLobby != null)
         {
             steamLobby.LeaveLobby();
-            Debug.Log("[UI] Leave button clicked");
         }
     }
 
     private void OnInviteClicked()
     {
+        Debug.Log("[SteamNetworkUI] OnInviteClicked called");
 #if !DISABLESTEAMWORKS
         if (SteamManager.Initialized && SteamLobby.CurrentLobbyID.IsValid())
         {
             SteamFriends.ActivateGameOverlayInviteDialog(SteamLobby.CurrentLobbyID);
-            Debug.Log("[UI] Opening Steam invite dialog...");
+            Debug.Log("[SteamNetworkUI] Opening Steam invite dialog...");
         }
         else
         {
-            Debug.LogWarning("[UI] Cannot invite - no active lobby!");
+            Debug.LogWarning("[SteamNetworkUI] Cannot invite - Steam not initialized or no active lobby!");
         }
 #endif
     }
 
     private void OnJoinClicked()
     {
+        Debug.Log("[SteamNetworkUI] OnJoinClicked called");
 #if !DISABLESTEAMWORKS
         if (steamLobby != null && lobbyIdInput != null && !string.IsNullOrEmpty(lobbyIdInput.text))
         {
             steamLobby.JoinLobbyById(lobbyIdInput.text.Trim());
-            Debug.Log($"[UI] Joining lobby: {lobbyIdInput.text}");
+            Debug.Log($"[SteamNetworkUI] Joining lobby: {lobbyIdInput.text}");
         }
         else
         {
-            Debug.LogWarning("[UI] Enter Lobby ID to join!");
+            Debug.LogWarning("[SteamNetworkUI] Enter Lobby ID to join!");
         }
 #endif
     }
 
     public void CopyLobbyId()
     {
+        Debug.Log("[SteamNetworkUI] CopyLobbyId called");
 #if !DISABLESTEAMWORKS
         if (SteamLobby.CurrentLobbyID.IsValid())
         {
             string lobbyId = SteamLobby.CurrentLobbyID.ToString();
             GUIUtility.systemCopyBuffer = lobbyId;
-            Debug.Log($"[UI] Lobby ID copied: {lobbyId}");
+            Debug.Log($"[SteamNetworkUI] Lobby ID copied: {lobbyId}");
         }
 #endif
     }

@@ -39,10 +39,13 @@ public class SteamManager : MonoBehaviour
             return;
         }
 
+        // ВАЖНО: Пропускаем RestartAppIfNecessary для разработки с App ID 480 (Spacewar)
+        // Эта проверка нужна только для релизных игр с собственным App ID
+        // Если у вас есть собственный App ID, раскомментируйте код ниже и замените 480 на ваш ID
+        /*
         try
         {
-            // Spacewar App ID = 480
-            if (SteamAPI.RestartAppIfNecessary((AppId_t)480))
+            if (SteamAPI.RestartAppIfNecessary((AppId_t)YOUR_APP_ID))
             {
                 Debug.Log("[SteamManager] Restarting app through Steam...");
                 Application.Quit();
@@ -54,6 +57,7 @@ public class SteamManager : MonoBehaviour
             Debug.LogError("[SteamManager] Could not load steam_api64.dll. Please make sure Steam is running.\n" + e);
             return;
         }
+        */
 
         m_bInitialized = SteamAPI.Init();
         if (!m_bInitialized)
