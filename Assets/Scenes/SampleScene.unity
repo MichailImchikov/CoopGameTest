@@ -507,7 +507,8 @@ GameObject:
   - component: {fileID: 420862096}
   - component: {fileID: 420862099}
   - component: {fileID: 420862098}
-  - component: {fileID: 420862097}
+  - component: {fileID: 420862101}
+  - component: {fileID: 420862100}
   m_Layer: 0
   m_Name: NetworkManager
   m_TagString: Untagged
@@ -530,35 +531,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &420862097
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 420862093}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 6b0fecffa3f624585964b0d0eb21b18e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Mirror.Transports::kcp2k.KcpTransport
-  port: 7777
-  DualMode: 1
-  NoDelay: 1
-  Interval: 10
-  Timeout: 10000
-  RecvBufferSize: 7361536
-  SendBufferSize: 7361536
-  FastResend: 2
-  ReceiveWindowSize: 4096
-  SendWindowSize: 4096
-  MaxRetransmit: 40
-  MaximizeSocketBuffers: 1
-  ReliableMaxMessageSize: 297433
-  UnreliableMaxMessageSize: 1194
-  debugLog: 0
-  statisticsGUI: 0
-  statisticsLog: 0
 --- !u!114 &420862098
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -593,7 +565,7 @@ MonoBehaviour:
   offlineScene: 
   onlineScene: 
   offlineSceneLoadDelay: 0
-  transport: {fileID: 420862097}
+  transport: {fileID: 420862101}
   networkAddress: localhost
   maxConnections: 100
   disconnectInactiveConnections: 0
@@ -623,6 +595,34 @@ MonoBehaviour:
   - {fileID: 8189980434977739222, guid: d06c4aba86166da4bbc450a8fa283dc6, type: 3}
   spawnPosition: {x: 0, y: 1, z: 0}
   spawnRadius: 3
+--- !u!114 &420862100
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 420862093}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 45fe20ddde13445449917546dca87828, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SteamLobby
+--- !u!114 &420862101
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 420862093}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e6e55fca1f4e4844593a3dd65a3ecb39, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: FizzySteamworks::Mirror.FizzySteam.FizzySteamworks
+  Channels: 0200000001000000
+  Timeout: 25
+  AllowSteamRelay: 1
+  UseNextGenSteamNetworking: 1
 --- !u!1 &554886663
 GameObject:
   m_ObjectHideFlags: 0
@@ -839,6 +839,50 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1302725224
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1302725226}
+  - component: {fileID: 1302725225}
+  m_Layer: 0
+  m_Name: SteamManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1302725225
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1302725224}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5e2dd8184351d6d478c75473e9abfd1a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SteamManager
+--- !u!4 &1302725226
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1302725224}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -1.83302, y: -0, z: 4.85831}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1637168479
 GameObject:
   m_ObjectHideFlags: 0
@@ -953,3 +997,4 @@ SceneRoots:
   - {fileID: 554886665}
   - {fileID: 1637168483}
   - {fileID: 644372713}
+  - {fileID: 1302725226}
