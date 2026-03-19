@@ -92,12 +92,12 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 24
+  m_fontSize: 19.35
   m_fontSizeBase: 24
   m_fontWeight: 400
-  m_enableAutoSizing: 0
+  m_enableAutoSizing: 1
   m_fontSizeMin: 0
-  m_fontSizeMax: 0
+  m_fontSizeMax: 100
   m_fontStyle: 0
   m_HorizontalAlignment: 2
   m_VerticalAlignment: 512
@@ -308,11 +308,11 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 24
+  m_fontSize: 19.35
   m_fontSizeBase: 24
   m_fontWeight: 400
-  m_enableAutoSizing: 0
-  m_fontSizeMin: 18
+  m_enableAutoSizing: 1
+  m_fontSizeMin: 1
   m_fontSizeMax: 72
   m_fontStyle: 0
   m_HorizontalAlignment: 2
@@ -445,11 +445,11 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 14.9
+  m_fontSize: 6.25
   m_fontSizeBase: 24
   m_fontWeight: 400
   m_enableAutoSizing: 1
-  m_fontSizeMin: 10
+  m_fontSizeMin: 1
   m_fontSizeMax: 72
   m_fontStyle: 0
   m_HorizontalAlignment: 2
@@ -526,8 +526,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 1019, y: 641}
-  m_SizeDelta: {x: 160, y: 30}
+  m_AnchoredPosition: {x: 743.1128, y: 456.79187}
+  m_SizeDelta: {x: 117.758, y: 21.6217}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &3240836844865359466
 CanvasRenderer:
@@ -782,11 +782,11 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 24
+  m_fontSize: 19.35
   m_fontSizeBase: 24
   m_fontWeight: 400
-  m_enableAutoSizing: 0
-  m_fontSizeMin: 18
+  m_enableAutoSizing: 1
+  m_fontSizeMin: 1
   m_fontSizeMax: 72
   m_fontStyle: 0
   m_HorizontalAlignment: 2
@@ -863,8 +863,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 543, y: 491}
-  m_SizeDelta: {x: 160, y: 30}
+  m_AnchoredPosition: {x: 392.7827, y: 348.68347}
+  m_SizeDelta: {x: 117.758, y: 21.6217}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &9221393765565121969
 CanvasRenderer:
@@ -984,8 +984,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 541, y: 641}
-  m_SizeDelta: {x: 160, y: 30}
+  m_AnchoredPosition: {x: 391.31067, y: 456.79187}
+  m_SizeDelta: {x: 117.758, y: 21.6217}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &3872220183398977404
 CanvasRenderer:
@@ -1161,11 +1161,11 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 24
+  m_fontSize: 19.35
   m_fontSizeBase: 24
   m_fontWeight: 400
-  m_enableAutoSizing: 0
-  m_fontSizeMin: 18
+  m_enableAutoSizing: 1
+  m_fontSizeMin: 1
   m_fontSizeMax: 72
   m_fontStyle: 0
   m_HorizontalAlignment: 2
@@ -1242,8 +1242,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 1018, y: 491}
-  m_SizeDelta: {x: 160, y: 30}
+  m_AnchoredPosition: {x: 742.37683, y: 348.68347}
+  m_SizeDelta: {x: 117.758, y: 21.6217}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &4772612153523036959
 CanvasRenderer:
@@ -1363,8 +1363,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 1018, y: 361}
-  m_SizeDelta: {x: 160, y: 30}
+  m_AnchoredPosition: {x: 742.37683, y: 254.9895}
+  m_SizeDelta: {x: 117.758, y: 21.6217}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &9015805821001475518
 CanvasRenderer:
@@ -1485,8 +1485,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 548, y: 362}
-  m_SizeDelta: {x: 160, y: 30}
+  m_AnchoredPosition: {x: 396.46265, y: 255.71027}
+  m_SizeDelta: {x: 117.758, y: 21.6217}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &593110287134675360
 CanvasRenderer:
@@ -1648,7 +1648,7 @@ Canvas:
   m_GameObject: {fileID: 7648768857834544784}
   m_Enabled: 1
   serializedVersion: 3
-  m_RenderMode: 0
+  m_RenderMode: 1
   m_Camera: {fileID: 0}
   m_PlaneDistance: 100
   m_PixelPerfect: 0
@@ -1720,3 +1720,5 @@ MonoBehaviour:
   joinButton: {fileID: 5353221975303156444}
   copyLobbyIdButton: {fileID: 8885015055213837340}
   lobbyIdInput: {fileID: 7907054103497503766}
+  mainCanvas: {fileID: 0}
+  canvasScaler: {fileID: 0}
