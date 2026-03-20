@@ -85,7 +85,7 @@ public class CustomNetworkManager : NetworkManager
 
         // »наче спавним вокруг заданной позиции
         Vector2 randomOffset = Random.insideUnitCircle * spawnRadius;
-        return spawnPosition + new Vector3(randomOffset.x, 0, randomOffset.y);
+        return  new Vector3(randomOffset.x, 0, randomOffset.y);
     }
 
     // —брос счЄтчика при остановке сервера

@@ -12,22 +12,30 @@ public class HeadLook : NetworkBehaviour
     [Tooltip("Чувствительность мыши")]
     public float mouseSensitivity = 2f;
     
-    [Tooltip("Максимальный угол обзора вверх/вниз")]
+    [Tooltip("Максимальный угол взгляда вверх/вниз")]
+    [Range(0f, 90f)]
     public float maxVerticalAngle = 90f;
     
     [Header("References")]
-    [Tooltip("Тело игрока - для горизонтального поворота")]
+    [Tooltip("Тело игрока - для горизонтального вращения")]
     public Transform playerBody;
     
-    // Текущий угол вертикального поворота
+    // Текущий угол вертикального вращения
     private float rotationX = 0f;
     
-    // Синхронизация поворота головы по сети
+    // Синхронизация вращения головы по сети
     [SyncVar]
     private float syncHeadRotationX;
 
     void Start()
     {
+        // Защита от нулевого maxVerticalAngle
+        if (maxVerticalAngle <= 0f)
+        {
+            maxVerticalAngle = 90f;
+            Debug.LogWarning("[HeadLook] maxVerticalAngle was 0 or negative, reset to 90");
+        }
+        
         if (isLocalPlayer)
         {
             SetupCamera();
@@ -98,20 +106,35 @@ public class HeadLook : NetworkBehaviour
         // Получаем движение мыши
         Vector2 mouseDelta = mouse.delta.ReadValue() * mouseSensitivity * 0.1f;
 
-        // Вертикальный поворот (голова/камера вверх-вниз)
+        // Вертикальное вращение (взгляд вверх-вниз)
         rotationX -= mouseDelta.y;
         rotationX = Mathf.Clamp(rotationX, -maxVerticalAngle, maxVerticalAngle);
 
-        // Применяем вертикальный поворот к голове (где находится камера)
+        // Применяем вертикальное вращение к камере напрямую
+        if (playerCamera != null)
+        {
+            playerCamera.transform.localRotation = Quaternion.Euler(rotationX, 0f, 0f);
+        }
+        
+        // Также вращаем голову (для синхронизации по сети)
         transform.localRotation = Quaternion.Euler(rotationX, 0f, 0f);
 
-        // Горизонтальный поворот (поворачиваем всё тело)
+        // Горизонтальное вращение (поворот всего тела)
         if (playerBody != null)
         {
             playerBody.Rotate(Vector3.up * mouseDelta.x);
         }
+        else
+        {
+            // Если playerBody не назначен, вращаем родителя
+            Transform body = transform.parent;
+            if (body != null)
+            {
+                body.Rotate(Vector3.up * mouseDelta.x);
+            }
+        }
 
-        // Синхронизируем с сервером
+        // Синхронизация с сервером
         if (isOwned)
         {
             CmdSyncHeadRotation(rotationX);
