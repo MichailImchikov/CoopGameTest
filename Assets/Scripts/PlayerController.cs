@@ -63,6 +63,7 @@ public class PlayerController : NetworkBehaviour
         if (!isLocalPlayer) return;
 
         HandleMovement();
+        HandleEscapeInput();
     }
 
     void HandleMovement()
@@ -93,6 +94,19 @@ public class PlayerController : NetworkBehaviour
                 animator.SetFloat(horizontalHash, input.x);
             if (hasVerticalParam)
                 animator.SetFloat(verticalHash, input.y);
+        }
+    }
+
+    void HandleEscapeInput()
+    {
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
+        {
+            // Toggle SteamNetworkUI panel
+            if (SteamNetworkUI.Instance != null)
+            {
+                SteamNetworkUI.Instance.TogglePanel();
+            }
         }
     }
 }

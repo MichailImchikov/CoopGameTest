@@ -18,11 +18,28 @@ public class SteamNetworkUI : MonoBehaviour
     [Header("Input Fields")]
     public InputField lobbyIdInput;
 
+    [Header("UI Panel")]
+    [Tooltip("Assign the top-level UI panel that contains the SteamNetworkUI controls. If left empty the script will hide/show child GameObjects.")]
+    public GameObject uiPanel;
+
     private SteamLobby steamLobby;
+
+    // State to control auto-hide
+    private bool isInGame = false;
+
+    // Singleton for easy access from PlayerController
+    public static SteamNetworkUI Instance { get; private set; }
 
     private void Awake()
     {
+        Instance = this;
         Debug.Log("[SteamNetworkUI] Awake called");
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this)
+            Instance = null;
     }
 
     private void Start()
@@ -68,20 +85,115 @@ public class SteamNetworkUI : MonoBehaviour
     private void Update()
     {
         UpdateUI();
+        HandleConnectionState();
+    }
+
+    private void HandleConnectionState()
+    {
+        bool connected = NetworkClient.isConnected || NetworkServer.active;
+#if !DISABLESTEAMWORKS
+        bool inLobby = SteamLobby.CurrentLobbyID.IsValid();
+#else
+        bool inLobby = false;
+#endif
+
+        bool currentlyInGame = connected || inLobby;
+
+        // Detect when player enters the game (connected or joined lobby)
+        if (currentlyInGame && !isInGame)
+        {
+            isInGame = true;
+            HidePanel();
+            Debug.Log("[SteamNetworkUI] Entered game - UI hidden");
+        }
+
+        // Detect when player leaves the game (disconnected and left lobby)
+        if (!currentlyInGame && isInGame)
+        {
+            isInGame = false;
+            ShowPanel();
+            Debug.Log("[SteamNetworkUI] Left game - UI shown");
+        }
+    }
+
+    /// <summary>
+    /// Toggle panel visibility. Called from PlayerController on Escape press.
+    /// </summary>
+    public void TogglePanel()
+    {
+        if (IsPanelActive())
+        {
+            HidePanel();
+            Debug.Log("[SteamNetworkUI] Panel toggled - hidden");
+        }
+        else
+        {
+            ShowPanel();
+            Debug.Log("[SteamNetworkUI] Panel toggled - shown");
+        }
+    }
+
+    public void HidePanel()
+    {
+        if (uiPanel != null)
+        {
+            uiPanel.SetActive(false);
+        }
+        else
+        {
+            foreach (Transform child in transform)
+            {
+                child.gameObject.SetActive(false);
+            }
+        }
+    }
+
+    public void ShowPanel()
+    {
+        if (uiPanel != null)
+        {
+            uiPanel.SetActive(true);
+        }
+        else
+        {
+            foreach (Transform child in transform)
+            {
+                child.gameObject.SetActive(true);
+            }
+        }
+    }
+
+    public bool IsPanelActive()
+    {
+        if (uiPanel != null)
+            return uiPanel.activeSelf;
+
+        // If no panel assigned, check if at least one child is active
+        foreach (Transform child in transform)
+        {
+            if (child.gameObject.activeSelf)
+                return true;
+        }
+
+        return false;
     }
 
     private void UpdateUI()
     {
 #if !DISABLESTEAMWORKS
-        if (SteamLobby.CurrentLobbyID.IsValid())
+        // Only update copyLobbyIdButton if panel is visible
+        if (IsPanelActive())
         {
-            if (copyLobbyIdButton != null)
-                copyLobbyIdButton.gameObject.SetActive(true);
-        }
-        else
-        {
-            if (copyLobbyIdButton != null)
-                copyLobbyIdButton.gameObject.SetActive(false);
+            if (SteamLobby.CurrentLobbyID.IsValid())
+            {
+                if (copyLobbyIdButton != null)
+                    copyLobbyIdButton.gameObject.SetActive(true);
+            }
+            else
+            {
+                if (copyLobbyIdButton != null)
+                    copyLobbyIdButton.gameObject.SetActive(false);
+            }
         }
 #endif
 
