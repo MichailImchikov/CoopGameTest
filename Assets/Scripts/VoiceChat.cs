@@ -4,14 +4,8 @@ using System;
 using System.Collections.Generic;
 
 /// <summary>
-/// Компонент голосового чата для Mirror.
+/// Компонент голосового чата для Mirror с низкой задержкой.
 /// Записывает звук с микрофона локального игрока и передаёт его всем игрокам в лобби.
-/// Добавьте этот компонент на префаб игрока вместе с NetworkIdentity.
-/// 
-/// Как это работает:
-/// 1. Локальный игрок: записывает микрофон ? отправляет CmdSendVoiceData на сервер
-/// 2. Сервер: получает данные ? рассылает RpcReceiveVoiceData всем клиентам
-/// 3. Удалённые игроки: AudioSource на GameObject говорящего воспроизводит его голос
 /// </summary>
 [RequireComponent(typeof(AudioSource))]
 public class VoiceChat : NetworkBehaviour
@@ -23,8 +17,8 @@ public class VoiceChat : NetworkBehaviour
     [Tooltip("Длина записи в секундах (буфер)")]
     public int recordingLength = 1;
     
-    [Tooltip("Размер сегмента для отправки (в сэмплах)")]
-    public int segmentSize = 1600; // ~100ms при 16kHz
+    [Tooltip("Размер сегмента для отправки (в сэмплах). Меньше = меньше задержка, но больше пакетов")]
+    public int segmentSize = 800; // ~50ms при 16kHz (уменьшено с 1600)
     
     [Tooltip("Порог громкости для активации голоса (0-1)")]
     [Range(0f, 1f)]
@@ -52,6 +46,10 @@ public class VoiceChat : NetworkBehaviour
     
     [Tooltip("Максимальная дистанция 3D звука")]
     public float maxDistance = 50f;
+    
+    [Tooltip("Размер джиттер-буфера (мс). Меньше = меньше задержка, но возможны разрывы")]
+    [Range(20, 200)]
+    public int jitterBufferMs = 50;
 
     [Header("Диагностика")]
     [SerializeField] private bool isRecording = false;
@@ -59,24 +57,32 @@ public class VoiceChat : NetworkBehaviour
     [SerializeField] private string currentMicrophone = "";
     [SerializeField] private float currentVolume = 0f;
     [SerializeField] private bool isPlaybackSetup = false;
+    [SerializeField] private int bufferedSamples = 0;
+    [SerializeField] private float latencyMs = 0f;
 
     // Компоненты
     private AudioSource audioSource;
     private AudioClip microphoneClip;
     
-    // Буферы
+    // Буферы записи
     private int lastSamplePosition = 0;
     private float[] sampleBuffer;
-    private Queue<float[]> playbackQueue = new Queue<float[]>();
     
-    // Воспроизведение
-    private AudioClip playbackClip;
-    private int playbackWritePosition = 0;
-    private int playbackReadPosition = 0;
-    private bool isPlayingVoice = false;
+    // Буферы воспроизведения - кольцевой буфер
     private float[] playbackBuffer;
-    private const int PLAYBACK_BUFFER_SIZE = 32000; // 2 секунды при 16kHz
-    private object bufferLock = new object();
+    private int writePosition = 0;
+    private int readPosition = 0;
+    private int samplesInBuffer = 0;
+    private readonly object bufferLock = new object();
+    
+    // Размер буфера: 500ms максимум (достаточно для джиттера)
+    private int PlaybackBufferSize => sampleRate / 2;
+    
+    // Джиттер-буфер: минимальное количество сэмплов перед воспроизведением
+    private int JitterBufferSamples => (sampleRate * jitterBufferMs) / 1000;
+    
+    private bool isPlayingVoice = false;
+    private bool hasEnoughDataToPlay = false;
 
     private void Awake()
     {
@@ -87,13 +93,13 @@ public class VoiceChat : NetworkBehaviour
         }
         
         sampleBuffer = new float[segmentSize];
-        playbackBuffer = new float[PLAYBACK_BUFFER_SIZE];
+        playbackBuffer = new float[PlaybackBufferSize];
     }
 
     public override void OnStartLocalPlayer()
     {
         base.OnStartLocalPlayer();
-        Debug.Log("[VoiceChat] OnStartLocalPlayer - это локальный игрок, запускаем микрофон");
+        Debug.Log("[VoiceChat] Локальный игрок - запускаем микрофон");
         StartMicrophone();
     }
 
@@ -106,10 +112,7 @@ public class VoiceChat : NetworkBehaviour
     public override void OnStartClient()
     {
         base.OnStartClient();
-        Debug.Log($"[VoiceChat] OnStartClient - isLocalPlayer: {isLocalPlayer}, netId: {netId}");
         
-        // Для удалённых игроков настраиваем воспроизведение
-        // isLocalPlayer уже должен быть установлен на этом этапе
         if (!isLocalPlayer)
         {
             SetupPlayback();
@@ -118,10 +121,8 @@ public class VoiceChat : NetworkBehaviour
 
     private void Start()
     {
-        // Дополнительная проверка на случай, если OnStartClient вызвался раньше
         if (isClient && !isLocalPlayer && !isPlaybackSetup)
         {
-            Debug.Log("[VoiceChat] Start - отложенная настройка воспроизведения");
             SetupPlayback();
         }
     }
@@ -130,57 +131,94 @@ public class VoiceChat : NetworkBehaviour
     {
         if (isPlaybackSetup) return;
         
-        Debug.Log($"[VoiceChat] SetupPlayback для игрока {netId}");
+        Debug.Log($"[VoiceChat] Настройка воспроизведения для игрока {netId}");
         
-        // Настраиваем AudioSource для воспроизведения голоса других игроков
+        // Настраиваем AudioSource
         audioSource.volume = playbackVolume;
         audioSource.loop = true;
         audioSource.playOnAwake = false;
         
         if (use3DAudio)
         {
-            audioSource.spatialBlend = 1f; // 3D звук
+            audioSource.spatialBlend = 1f;
             audioSource.minDistance = minDistance;
             audioSource.maxDistance = maxDistance;
             audioSource.rolloffMode = AudioRolloffMode.Linear;
         }
         else
         {
-            audioSource.spatialBlend = 0f; // 2D звук
+            audioSource.spatialBlend = 0f;
         }
         
-        // Создаём AudioClip для воспроизведения с PCMReaderCallback
-        playbackClip = AudioClip.Create(
-            $"VoicePlayback_{netId}", 
-            PLAYBACK_BUFFER_SIZE, 
-            1, 
-            sampleRate, 
-            true,  // stream = true для использования callback
-            OnAudioRead
-        );
-        audioSource.clip = playbackClip;
+        // Создаём короткий AudioClip для низкой задержки
+        // Используем НЕ-стриминговый клип с OnAudioFilterRead
+        int clipLength = sampleRate / 10; // 100ms клип
+        AudioClip clip = AudioClip.Create($"Voice_{netId}", clipLength, 1, sampleRate, false);
+        
+        // Заполняем тишиной
+        float[] silence = new float[clipLength];
+        clip.SetData(silence, 0);
+        
+        audioSource.clip = clip;
         
         isPlaybackSetup = true;
-        Debug.Log($"[VoiceChat] Воспроизведение настроено для игрока {netId}");
+        Debug.Log($"[VoiceChat] Воспроизведение настроено, джиттер-буфер: {jitterBufferMs}ms");
     }
 
-    private void OnAudioRead(float[] data)
+    // Вызывается Unity для обработки аудио (низкая задержка!)
+    private void OnAudioFilterRead(float[] data, int channels)
     {
-        // Callback вызывается Unity для заполнения аудиобуфера
+        if (isLocalPlayer || !isPlaybackSetup) return;
+        
         lock (bufferLock)
         {
-            for (int i = 0; i < data.Length; i++)
+            // Обновляем диагностику
+            bufferedSamples = samplesInBuffer;
+            latencyMs = (samplesInBuffer * 1000f) / sampleRate;
+            
+            // Проверяем, достаточно ли данных для воспроизведения
+            if (!hasEnoughDataToPlay)
             {
-                if (playbackBuffer[playbackReadPosition] != 0)
+                if (samplesInBuffer >= JitterBufferSamples)
                 {
-                    data[i] = playbackBuffer[playbackReadPosition];
-                    playbackBuffer[playbackReadPosition] = 0;
+                    hasEnoughDataToPlay = true;
                 }
                 else
                 {
-                    data[i] = 0;
+                    // Заполняем тишиной пока буфер не заполнится
+                    for (int i = 0; i < data.Length; i++)
+                    {
+                        data[i] = 0;
+                    }
+                    return;
                 }
-                playbackReadPosition = (playbackReadPosition + 1) % PLAYBACK_BUFFER_SIZE;
+            }
+            
+            // Воспроизводим данные из буфера
+            int samplesToRead = data.Length / channels;
+            
+            for (int i = 0; i < samplesToRead; i++)
+            {
+                float sample = 0f;
+                
+                if (samplesInBuffer > 0)
+                {
+                    sample = playbackBuffer[readPosition];
+                    playbackBuffer[readPosition] = 0f;
+                    readPosition = (readPosition + 1) % PlaybackBufferSize;
+                    samplesInBuffer--;
+                }
+                else
+                {
+                    // Буфер опустел - сбрасываем джиттер-буфер
+                    hasEnoughDataToPlay = false;
+                }
+                
+                // Записываем во все каналы
+                for (int ch = 0; ch < channels; ch++)
+                {
+                    data[i * channels + ch] = sample;
+                }
             }
         }
     }
@@ -194,24 +232,27 @@ public class VoiceChat : NetworkBehaviour
         }
 
         currentMicrophone = Microphone.devices[0];
-        Debug.Log($"[VoiceChat] Используется микрофон: {currentMicrophone}");
+        Debug.Log($"[VoiceChat] Микрофон: {currentMicrophone}");
 
-        // Запускаем запись
         microphoneClip = Microphone.Start(currentMicrophone, true, recordingLength, sampleRate);
         
-        // Ждём начала записи (с таймаутом)
-        float timeout = Time.realtimeSinceStartup + 2f;
-        while (!(Microphone.GetPosition(currentMicrophone) > 0))
+        // Ждём начала записи с таймаутом
+        int timeout = 100;
+        while (Microphone.GetPosition(currentMicrophone) <= 0 && timeout > 0)
         {
-            if (Time.realtimeSinceStartup > timeout)
-            {
-                Debug.LogError("[VoiceChat] Таймаут ожидания микрофона!");
-                return;
-            }
+            timeout--;
+            System.Threading.Thread.Sleep(10);
+        }
+        
+        if (timeout <= 0)
+        {
+            Debug.LogError("[VoiceChat] Таймаут запуска микрофона!");
+            return;
         }
         
         isRecording = true;
-        Debug.Log("[VoiceChat] Запись микрофона начата");
+        lastSamplePosition = Microphone.GetPosition(currentMicrophone);
+        Debug.Log("[VoiceChat] Микрофон запущен");
     }
 
     private void StopMicrophone()
@@ -220,7 +261,7 @@ public class VoiceChat : NetworkBehaviour
         {
             Microphone.End(currentMicrophone);
             isRecording = false;
-            Debug.Log("[VoiceChat] Запись микрофона остановлена");
+            Debug.Log("[VoiceChat] Микрофон остановлен");
         }
     }
 
@@ -229,6 +270,12 @@ public class VoiceChat : NetworkBehaviour
         if (isLocalPlayer && isRecording)
         {
             ProcessMicrophoneInput();
+        }
+        
+        // Запускаем воспроизведение если нужно
+        if (!isLocalPlayer && isPlaybackSetup && hasEnoughDataToPlay && !audioSource.isPlaying)
+        {
+            audioSource.Play();
         }
     }
 
@@ -239,22 +286,10 @@ public class VoiceChat : NetworkBehaviour
         int currentPosition = Microphone.GetPosition(currentMicrophone);
         if (currentPosition < 0) return;
 
-        // Проверяем, можно ли говорить
-        bool canSpeak = false;
-        if (usePushToTalk)
-        {
-            canSpeak = Input.GetKey(pushToTalkKey);
-        }
-        else if (useVoiceActivation)
-        {
-            canSpeak = true; // VAD проверяется ниже
-        }
-        else
-        {
-            canSpeak = true; // Всегда передавать
-        }
+        // Проверяем режим передачи
+        bool canSpeak = usePushToTalk ? Input.GetKey(pushToTalkKey) : true;
 
-        // Вычисляем, сколько новых сэмплов доступно
+        // Вычисляем доступные сэмплы
         int samplesAvailable;
         if (currentPosition >= lastSamplePosition)
         {
@@ -265,28 +300,23 @@ public class VoiceChat : NetworkBehaviour
             samplesAvailable = (microphoneClip.samples - lastSamplePosition) + currentPosition;
         }
 
-        // Обрабатываем сэмплы сегментами
+        // Обрабатываем сегментами
         while (samplesAvailable >= segmentSize)
         {
-            // Читаем сегмент
             microphoneClip.GetData(sampleBuffer, lastSamplePosition);
             
-            // Вычисляем громкость
             float volume = CalculateVolume(sampleBuffer);
             currentVolume = volume;
 
-            // Проверяем VAD
             bool voiceDetected = !useVoiceActivation || volume > voiceActivationThreshold;
             isSpeaking = canSpeak && voiceDetected;
 
             if (isSpeaking)
             {
-                // Сжимаем и отправляем данные
                 byte[] compressedData = CompressAudioData(sampleBuffer);
                 CmdSendVoiceData(compressedData);
             }
 
-            // Обновляем позицию
             lastSamplePosition = (lastSamplePosition + segmentSize) % microphoneClip.samples;
             samplesAvailable -= segmentSize;
         }
@@ -302,9 +332,6 @@ public class VoiceChat : NetworkBehaviour
         return sum / samples.Length;
     }
 
-    /// <summary>
-    /// Простое сжатие: конвертируем float в 16-bit PCM
-    /// </summary>
     private byte[] CompressAudioData(float[] samples)
     {
         byte[] data = new byte[samples.Length * 2];
@@ -317,9 +344,6 @@ public class VoiceChat : NetworkBehaviour
         return data;
     }
 
-    /// <summary>
-    /// Декомпрессия: конвертируем 16-bit PCM обратно в float
-    /// </summary>
     private float[] DecompressAudioData(byte[] data)
     {
         float[] samples = new float[data.Length / 2];
@@ -331,58 +355,44 @@ public class VoiceChat : NetworkBehaviour
         return samples;
     }
 
-    /// <summary>
-    /// Команда: отправляем голосовые данные на сервер
-    /// </summary>
     [Command(channel = Channels.Unreliable)]
     private void CmdSendVoiceData(byte[] voiceData)
     {
-        // Сервер получил данные, рассылаем всем клиентам (кроме отправителя)
         RpcReceiveVoiceData(voiceData);
     }
 
-    /// <summary>
-    /// RPC: получаем голосовые данные от сервера
-    /// Вызывается на всех клиентах (кроме владельца) на GameObject говорящего игрока
-    /// </summary>
     [ClientRpc(channel = Channels.Unreliable, includeOwner = false)]
     private void RpcReceiveVoiceData(byte[] voiceData)
     {
-        // Этот метод вызывается на GameObject говорящего игрока
-        // но выполняется на клиентах других игроков
         if (isLocalPlayer) return;
         
-        // Убеждаемся что воспроизведение настроено
         if (!isPlaybackSetup)
         {
             SetupPlayback();
         }
 
-        // Декомпрессируем данные
         float[] samples = DecompressAudioData(voiceData);
         
-        // Добавляем в кольцевой буфер воспроизведения
         lock (bufferLock)
         {
+            // Записываем в кольцевой буфер
             for (int i = 0; i < samples.Length; i++)
             {
-                playbackBuffer[playbackWritePosition] = samples[i];
-                playbackWritePosition = (playbackWritePosition + 1) % PLAYBACK_BUFFER_SIZE;
+                // Проверяем переполнение буфера
+                if (samplesInBuffer >= PlaybackBufferSize - 1)
+                {
+                    // Буфер полон - пропускаем старые данные
+                    readPosition = (readPosition + 1) % PlaybackBufferSize;
+                    samplesInBuffer--;
+                }
+                
+                playbackBuffer[writePosition] = samples[i];
+                writePosition = (writePosition + 1) % PlaybackBufferSize;
+                samplesInBuffer++;
             }
-        }
-
-        // Начинаем воспроизведение, если ещё не играет
-        if (!isPlayingVoice && audioSource != null)
-        {
-            isPlayingVoice = true;
-            audioSource.Play();
-            Debug.Log($"[VoiceChat] Начато воспроизведение голоса от игрока {netId}");
         }
     }
 
-    /// <summary>
-    /// Переключить микрофон
-    /// </summary>
     public void SetMicrophone(string deviceName)
     {
         if (!isLocalPlayer) return;
@@ -394,78 +404,34 @@ public class VoiceChat : NetworkBehaviour
             currentMicrophone = deviceName;
             StartMicrophone();
         }
-        else
-        {
-            Debug.LogWarning($"[VoiceChat] Микрофон '{deviceName}' не найден!");
-        }
     }
 
-    /// <summary>
-    /// Получить список доступных микрофонов
-    /// </summary>
-    public static string[] GetAvailableMicrophones()
-    {
-        return Microphone.devices;
-    }
+    public static string[] GetAvailableMicrophones() => Microphone.devices;
 
-    /// <summary>
-    /// Включить/выключить передачу голоса
-    /// </summary>
     public void SetMuted(bool muted)
     {
         if (!isLocalPlayer) return;
-        
-        if (muted)
-        {
-            StopMicrophone();
-        }
-        else
-        {
-            StartMicrophone();
-        }
+        if (muted) StopMicrophone();
+        else StartMicrophone();
     }
 
-    /// <summary>
-    /// Установить громкость воспроизведения
-    /// </summary>
     public void SetPlaybackVolume(float volume)
     {
         playbackVolume = Mathf.Clamp(volume, 0f, 2f);
         if (audioSource != null)
-        {
             audioSource.volume = playbackVolume;
-        }
     }
 
-    /// <summary>
-    /// Проверить, говорит ли этот игрок сейчас
-    /// </summary>
     public bool IsSpeaking => isSpeaking;
-
-    /// <summary>
-    /// Проверить, идёт ли запись
-    /// </summary>
     public bool IsRecording => isRecording;
+    public float LatencyMs => latencyMs;
 
-    private void OnDestroy()
-    {
-        StopMicrophone();
-    }
-
-    private void OnDisable()
-    {
-        StopMicrophone();
-    }
+    private void OnDestroy() => StopMicrophone();
+    private void OnDisable() => StopMicrophone();
 
     private void OnApplicationPause(bool pauseStatus)
     {
-        if (pauseStatus)
-        {
-            StopMicrophone();
-        }
-        else if (isLocalPlayer)
-        {
-            StartMicrophone();
-        }
+        if (pauseStatus) StopMicrophone();
+        else if (isLocalPlayer) StartMicrophone();
     }
 }
