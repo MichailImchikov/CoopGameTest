@@ -1,148 +1,134 @@
 using UnityEngine;
 using Mirror;
 using System;
-using Steamworks;
 
 /// <summary>
-/// Голосовой чат через Steam Voice API.
-/// Использует встроенное сжатие Opus, шумоподавление и эхоподавение Steam.
+/// Голосовой чат с минимальной задержкой.
+/// Постоянно записывает микрофон и отправляет данные без VAD.
 /// </summary>
 public class VoiceChat : NetworkBehaviour
 {
-    [Header("Настройки Steam Voice")]
-    [Tooltip("Автоматически начинать запись при старте")]
-    public bool autoStartRecording = true;
+    [Header("Настройки микрофона")]
+    [Tooltip("Частота дискретизации (меньше = меньше задержка, но хуже качество)")]
+    public int sampleRate = 11025; // Низкая частота для минимальной задержки
+    
+    [Tooltip("Размер сегмента в миллисекундах")]
+    [Range(20, 100)]
+    public int segmentMs = 20; // 20ms = очень низкая задержка
     
     [Tooltip("Клавиша для передачи голоса (Push-to-Talk)")]
     public KeyCode pushToTalkKey = KeyCode.V;
     
-    [Tooltip("Использовать Push-to-Talk вместо постоянной передачи")]
+    [Tooltip("Использовать Push-to-Talk (если false - постоянная передача)")]
     public bool usePushToTalk = false;
 
     [Header("Настройки воспроизведения")]
-    [Tooltip("Громкость воспроизведения голоса других игроков")]
+    [Tooltip("Громкость воспроизведения")]
     [Range(0f, 2f)]
     public float playbackVolume = 1f;
     
-    [Tooltip("3D звук (позиционный)")]
+    [Tooltip("3D звук")]
     public bool use3DAudio = false;
     
-    [Tooltip("Минимальная дистанция 3D звука")]
     public float minDistance = 1f;
-    
-    [Tooltip("Максимальная дистанция 3D звука")]
     public float maxDistance = 50f;
 
     [Header("Диагностика")]
-    [SerializeField] private bool steamInitialized = false;
     [SerializeField] private bool isRecording = false;
-    [SerializeField] private bool isSpeaking = false;
-    [SerializeField] private int compressedBytesSent = 0;
-    [SerializeField] private int packetsReceived = 0;
+    [SerializeField] private bool isTransmitting = false;
+    [SerializeField] private string microphoneName = "";
     [SerializeField] private int packetsSent = 0;
+    [SerializeField] private int packetsReceived = 0;
+    [SerializeField] private float inputLevel = 0f;
+    [SerializeField] private int bufferMs = 0;
 
-    // Steam Voice
-    private const int SAMPLE_RATE = 48000;
-    private byte[] compressedBuffer = new byte[8192];
-    private byte[] decompressedBuffer = new byte[22050 * 2];
+    // Микрофон
+    private AudioClip micClip;
+    private int lastMicPosition = 0;
+    private float[] micBuffer;
+    private int segmentSamples;
     
     // Воспроизведение
     private AudioSource audioSource;
-    private float[] audioBuffer;
-    private int writePosition = 0;
-    private int readPosition = 0;
-    private int samplesInBuffer = 0;
+    private float[] playbackBuffer;
+    private int writePos = 0;
+    private int readPos = 0;
+    private int samplesBuffered = 0;
     private readonly object bufferLock = new object();
-    private const int AUDIO_BUFFER_SIZE = 48000;
+    private const int BUFFER_SECONDS = 1;
+    private int bufferSize;
     
     private bool isPlaybackSetup = false;
 
     private void Awake()
     {
-        audioBuffer = new float[AUDIO_BUFFER_SIZE];
-    }
-
-    /// <summary>
-    /// Проверяет инициализацию Steam через SteamManager
-    /// </summary>
-    private bool CheckSteamInitialization()
-    {
-        // Сначала проверяем через SteamManager
-        if (SteamManager.Instance != null && SteamManager.Initialized)
-        {
-            steamInitialized = true;
-            return true;
-        }
-        
-        // Fallback: прямая проверка Steam API
-        try
-        {
-            if (!SteamAPI.IsSteamRunning())
-            {
-                Debug.LogWarning("[VoiceChat] Steam не запущен!");
-                steamInitialized = false;
-                return false;
-            }
-            
-            CSteamID steamId = SteamUser.GetSteamID();
-            if (!steamId.IsValid())
-            {
-                Debug.LogWarning("[VoiceChat] Steam ID невалидный!");
-                steamInitialized = false;
-                return false;
-            }
-            
-            steamInitialized = true;
-            Debug.Log($"[VoiceChat] Steam OK (fallback). User: {SteamFriends.GetPersonaName()}");
-            return true;
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"[VoiceChat] Ошибка проверки Steam: {e.Message}");
-            steamInitialized = false;
-            return false;
-        }
+        segmentSamples = (sampleRate * segmentMs) / 1000;
+        micBuffer = new float[segmentSamples];
+        bufferSize = sampleRate * BUFFER_SECONDS;
+        playbackBuffer = new float[bufferSize];
     }
 
     public override void OnStartLocalPlayer()
     {
         base.OnStartLocalPlayer();
-        
-        Debug.Log("[VoiceChat] === ЛОКАЛЬНЫЙ ИГРОК ===");
-        
-        // Проверяем Steam
-        if (!CheckSteamInitialization())
-        {
-            Debug.LogError("[VoiceChat] Steam не инициализирован! Убедитесь что:");
-            Debug.LogError("  1. Steam запущен");
-            Debug.LogError("  2. SteamManager есть на сцене");
-            Debug.LogError("  3. steam_appid.txt существует (480 для тестов)");
-            return;
-        }
-        
-        Debug.Log($"[VoiceChat] Steam готов. User: {SteamFriends.GetPersonaName()}");
-        
-        if (autoStartRecording)
-        {
-            StartRecording();
-        }
+        Debug.Log("[VoiceChat] Локальный игрок - запуск микрофона");
+        StartMicrophone();
     }
 
     public override void OnStopLocalPlayer()
     {
         base.OnStopLocalPlayer();
-        StopRecording();
+        StopMicrophone();
     }
 
     public override void OnStartClient()
     {
         base.OnStartClient();
-        
-        // Для удалённых игроков настраиваем воспроизведение
         if (!isLocalPlayer)
         {
-            CheckSteamInitialization();
             SetupPlayback();
+        }
+    }
+
+    private void StartMicrophone()
+    {
+        if (Microphone.devices.Length == 0)
+        {
+            Debug.LogError("[VoiceChat] Микрофон не найден!");
+            return;
+        }
+
+        microphoneName = Microphone.devices[0];
+        
+        // Запускаем микрофон с минимальным буфером (1 секунда - минимум Unity)
+        micClip = Microphone.Start(microphoneName, true, 1, sampleRate);
+        
+        // Ждём запуска
+        int wait = 0;
+        while (Microphone.GetPosition(microphoneName) <= 0 && wait < 50)
+        {
+            wait++;
+            System.Threading.Thread.Sleep(10);
+        }
+        
+        if (wait >= 50)
+        {
+            Debug.LogError("[VoiceChat] Таймаут запуска микрофона!");
+            return;
+        }
+        
+        lastMicPosition = Microphone.GetPosition(microphoneName);
+        isRecording = true;
+        
+        Debug.Log($"[VoiceChat] Микрофон запущен: {microphoneName}, {sampleRate}Hz, сегмент {segmentMs}ms ({segmentSamples} samples)");
+    }
+
+    private void StopMicrophone()
+    {
+        if (isRecording)
+        {
+            Microphone.End(microphoneName);
+            isRecording = false;
         }
     }
 
@@ -150,8 +136,7 @@ public class VoiceChat : NetworkBehaviour
     {
         if (isPlaybackSetup) return;
         
-        // Создаём GameObject для воспроизведения
-        GameObject audioObj = new GameObject($"SteamVoice_{netId}");
+        GameObject audioObj = new GameObject($"Voice_{netId}");
         audioObj.transform.SetParent(transform);
         audioObj.transform.localPosition = Vector3.zero;
         
@@ -160,49 +145,38 @@ public class VoiceChat : NetworkBehaviour
         audioSource.loop = true;
         audioSource.playOnAwake = false;
         audioSource.priority = 0;
+        audioSource.spatialBlend = use3DAudio ? 1f : 0f;
         
         if (use3DAudio)
         {
-            audioSource.spatialBlend = 1f;
             audioSource.minDistance = minDistance;
             audioSource.maxDistance = maxDistance;
             audioSource.rolloffMode = AudioRolloffMode.Linear;
         }
-        else
-        {
-            audioSource.spatialBlend = 0f;
-        }
         
-        // Создаём стриминговый AudioClip
-        AudioClip clip = AudioClip.Create(
-            $"SteamVoice_{netId}",
-            AUDIO_BUFFER_SIZE,
-            1,
-            SAMPLE_RATE,
-            true,
-            OnAudioRead,
-            OnAudioSetPosition
-        );
-        
+        // Стриминговый клип для минимальной задержки
+        AudioClip clip = AudioClip.Create($"Voice_{netId}", bufferSize, 1, sampleRate, true, OnAudioRead);
         audioSource.clip = clip;
         audioSource.Play();
-        isPlaybackSetup = true;
         
-        Debug.Log($"[VoiceChat] Воспроизведение настроено для игрока {netId}");
+        isPlaybackSetup = true;
+        Debug.Log($"[VoiceChat] Воспроизведение готово для {netId}");
     }
 
     private void OnAudioRead(float[] data)
     {
         lock (bufferLock)
         {
+            bufferMs = (samplesBuffered * 1000) / sampleRate;
+            
             for (int i = 0; i < data.Length; i++)
             {
-                if (samplesInBuffer > 0)
+                if (samplesBuffered > 0)
                 {
-                    data[i] = audioBuffer[readPosition];
-                    audioBuffer[readPosition] = 0f;
-                    readPosition = (readPosition + 1) % AUDIO_BUFFER_SIZE;
-                    samplesInBuffer--;
+                    data[i] = playbackBuffer[readPos];
+                    playbackBuffer[readPos] = 0f;
+                    readPos = (readPos + 1) % bufferSize;
+                    samplesBuffered--;
                 }
                 else
                 {
@@ -212,120 +186,94 @@ public class VoiceChat : NetworkBehaviour
         }
     }
 
-    private void OnAudioSetPosition(int newPosition)
-    {
-        // Не используем
-    }
-
-    public void StartRecording()
-    {
-        if (!isLocalPlayer) return;
-        
-        if (!steamInitialized && !CheckSteamInitialization())
-        {
-            Debug.LogError("[VoiceChat] Не могу начать запись - Steam не инициализирован");
-            return;
-        }
-        
-        SteamUser.StartVoiceRecording();
-        isRecording = true;
-        Debug.Log("[VoiceChat] Steam Voice запись начата");
-    }
-
-    public void StopRecording()
-    {
-        if (!isLocalPlayer) return;
-        
-        if (steamInitialized)
-        {
-            try
-            {
-                SteamUser.StopVoiceRecording();
-            }
-            catch (Exception e)
-            {
-                Debug.LogWarning($"[VoiceChat] Ошибка остановки записи: {e.Message}");
-            }
-        }
-        isRecording = false;
-        isSpeaking = false;
-    }
-
     private void Update()
     {
-        if (!isLocalPlayer || !steamInitialized || !isRecording) return;
+        if (!isLocalPlayer || !isRecording) return;
         
-        // Push-to-Talk логика
-        if (usePushToTalk)
-        {
-            if (Input.GetKeyDown(pushToTalkKey))
-            {
-                SteamUser.StartVoiceRecording();
-            }
-            else if (Input.GetKeyUp(pushToTalkKey))
-            {
-                SteamUser.StopVoiceRecording();
-            }
-        }
+        // Проверяем PTT
+        isTransmitting = !usePushToTalk || Input.GetKey(pushToTalkKey);
         
-        ProcessVoice();
+        ProcessMicrophone();
     }
 
-    private void ProcessVoice()
+    private void ProcessMicrophone()
     {
-        try
+        if (micClip == null) return;
+        
+        int currentPos = Microphone.GetPosition(microphoneName);
+        if (currentPos < 0) return;
+        
+        // Вычисляем доступные сэмплы
+        int available;
+        if (currentPos >= lastMicPosition)
         {
-            EVoiceResult result = SteamUser.GetAvailableVoice(out uint compressedSize);
+            available = currentPos - lastMicPosition;
+        }
+        else
+        {
+            available = (micClip.samples - lastMicPosition) + currentPos;
+        }
+        
+        // Отправляем сегментами
+        while (available >= segmentSamples)
+        {
+            int readStart = lastMicPosition % micClip.samples;
+            micClip.GetData(micBuffer, readStart);
             
-            if (result == EVoiceResult.k_EVoiceResultOK && compressedSize > 0)
+            // Вычисляем уровень входа
+            float sum = 0f;
+            for (int i = 0; i < micBuffer.Length; i++)
             {
-                isSpeaking = true;
-                
-                result = SteamUser.GetVoice(
-                    true,
-                    compressedBuffer,
-                    (uint)compressedBuffer.Length,
-                    out uint bytesWritten
-                );
-                
-                if (result == EVoiceResult.k_EVoiceResultOK && bytesWritten > 0)
-                {
-                    byte[] dataToSend = new byte[bytesWritten];
-                    Array.Copy(compressedBuffer, dataToSend, bytesWritten);
-                    
-                    CmdSendVoiceData(dataToSend);
-                    
-                    compressedBytesSent += (int)bytesWritten;
-                    packetsSent++;
-                }
+                sum += Mathf.Abs(micBuffer[i]);
             }
-            else if (result == EVoiceResult.k_EVoiceResultNoData)
+            inputLevel = sum / micBuffer.Length;
+            
+            if (isTransmitting)
             {
-                isSpeaking = false;
+                // Сжимаем в 8-bit для минимального размера пакета
+                byte[] data = CompressTo8Bit(micBuffer);
+                CmdSendVoice(data);
+                packetsSent++;
             }
+            
+            lastMicPosition = (lastMicPosition + segmentSamples) % micClip.samples;
+            available -= segmentSamples;
         }
-        catch (Exception e)
+    }
+
+    // 8-bit сжатие (µ-law подобное) для минимального размера пакетов
+    private byte[] CompressTo8Bit(float[] samples)
+    {
+        byte[] data = new byte[samples.Length];
+        for (int i = 0; i < samples.Length; i++)
         {
-            Debug.LogError($"[VoiceChat] Ошибка обработки голоса: {e.Message}");
-            isRecording = false;
+            // Простое линейное сжатие в 8 бит
+            float clamped = Mathf.Clamp(samples[i], -1f, 1f);
+            data[i] = (byte)((clamped + 1f) * 127.5f);
         }
+        return data;
+    }
+
+    private float[] DecompressFrom8Bit(byte[] data)
+    {
+        float[] samples = new float[data.Length];
+        for (int i = 0; i < data.Length; i++)
+        {
+            samples[i] = (data[i] / 127.5f) - 1f;
+        }
+        return samples;
     }
 
     [Command(channel = Channels.Unreliable)]
-    private void CmdSendVoiceData(byte[] compressedVoiceData)
+    private void CmdSendVoice(byte[] data)
     {
-        RpcReceiveVoiceData(compressedVoiceData);
+        RpcReceiveVoice(data);
     }
 
     [ClientRpc(channel = Channels.Unreliable, includeOwner = false)]
-    private void RpcReceiveVoiceData(byte[] compressedVoiceData)
+    private void RpcReceiveVoice(byte[] data)
     {
         if (isLocalPlayer) return;
-        
-        if (!steamInitialized && !CheckSteamInitialization())
-        {
-            return;
-        }
         
         if (!isPlaybackSetup)
         {
@@ -334,52 +282,31 @@ public class VoiceChat : NetworkBehaviour
         
         packetsReceived++;
         
-        try
+        float[] samples = DecompressFrom8Bit(data);
+        
+        lock (bufferLock)
         {
-            EVoiceResult result = SteamUser.DecompressVoice(
-                compressedVoiceData,
-                (uint)compressedVoiceData.Length,
-                decompressedBuffer,
-                (uint)decompressedBuffer.Length,
-                out uint bytesWritten,
-                (uint)SAMPLE_RATE
-            );
-            
-            if (result == EVoiceResult.k_EVoiceResultOK && bytesWritten > 0)
+            for (int i = 0; i < samples.Length; i++)
             {
-                int sampleCount = (int)bytesWritten / 2;
-                
-                lock (bufferLock)
+                // При переполнении - отбрасываем старые данные
+                if (samplesBuffered >= bufferSize - 1)
                 {
-                    for (int i = 0; i < sampleCount; i++)
-                    {
-                        short pcmSample = (short)(decompressedBuffer[i * 2] | (decompressedBuffer[i * 2 + 1] << 8));
-                        float sample = pcmSample / 32768f;
-                        
-                        if (samplesInBuffer >= AUDIO_BUFFER_SIZE - 1)
-                        {
-                            readPosition = (readPosition + 1) % AUDIO_BUFFER_SIZE;
-                            samplesInBuffer--;
-                        }
-                        
-                        audioBuffer[writePosition] = sample;
-                        writePosition = (writePosition + 1) % AUDIO_BUFFER_SIZE;
-                        samplesInBuffer++;
-                    }
+                    readPos = (readPos + 1) % bufferSize;
+                    samplesBuffered--;
                 }
+                
+                playbackBuffer[writePos] = samples[i];
+                writePos = (writePos + 1) % bufferSize;
+                samplesBuffered++;
             }
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"[VoiceChat] Ошибка декомпрессии: {e.Message}");
         }
     }
 
     public void SetMuted(bool muted)
     {
         if (!isLocalPlayer) return;
-        if (muted) StopRecording();
-        else StartRecording();
+        if (muted) StopMicrophone();
+        else StartMicrophone();
     }
 
     public void SetPlaybackVolume(float volume)
@@ -389,50 +316,39 @@ public class VoiceChat : NetworkBehaviour
             audioSource.volume = playbackVolume;
     }
 
-    public bool IsSpeaking => isSpeaking;
+    public bool IsTransmitting => isTransmitting;
     public bool IsRecording => isRecording;
-    public bool IsSteamInitialized => steamInitialized;
 
     private void OnDestroy()
     {
-        StopRecording();
-        if (audioSource != null && audioSource.gameObject != this.gameObject)
+        StopMicrophone();
+        if (audioSource != null && audioSource.gameObject != gameObject)
         {
             Destroy(audioSource.gameObject);
         }
     }
 
-    private void OnDisable() => StopRecording();
-
-    private void OnApplicationPause(bool pauseStatus)
-    {
-        if (pauseStatus) StopRecording();
-        else if (isLocalPlayer && autoStartRecording && steamInitialized) StartRecording();
-    }
+    private void OnDisable() => StopMicrophone();
 
     // Отладочный UI
     private void OnGUI()
     {
         if (!isLocalPlayer) return;
         
-        GUILayout.BeginArea(new Rect(10, 10, 350, 230));
+        GUILayout.BeginArea(new Rect(10, 10, 300, 200));
         GUI.color = Color.black;
-        GUILayout.Label("=== Steam Voice Chat ===");
-        
-        string steamStatus = steamInitialized ? "OK" : "NOT INITIALIZED";
-        string steamManagerStatus = (SteamManager.Instance != null && SteamManager.Initialized) ? "OK" : "NOT READY";
-        
-        GUILayout.Label($"SteamManager: {steamManagerStatus}");
-        GUILayout.Label($"Steam Voice: {steamStatus}");
-        GUILayout.Label($"Recording: {isRecording}");
-        GUILayout.Label($"Speaking: {isSpeaking}");
+        GUILayout.Label("=== Voice Chat (Low Latency) ===");
+        GUILayout.Label($"Microphone: {(isRecording ? "ON" : "OFF")}");
+        GUILayout.Label($"Transmitting: {isTransmitting}");
+        GUILayout.Label($"Input Level: {inputLevel:F3}");
         GUILayout.Label($"Packets Sent: {packetsSent}");
-        GUILayout.Label($"Compressed KB: {compressedBytesSent / 1024f:F1}");
+        GUILayout.Label($"Segment: {segmentMs}ms ({segmentSamples} samples)");
+        GUILayout.Label($"Sample Rate: {sampleRate}Hz");
         
         if (usePushToTalk)
             GUILayout.Label($"Hold [{pushToTalkKey}] to talk");
         else
-            GUILayout.Label("Voice Activation: ON");
+            GUILayout.Label("Always transmitting");
         
         GUI.color = Color.white;
         GUILayout.EndArea();
